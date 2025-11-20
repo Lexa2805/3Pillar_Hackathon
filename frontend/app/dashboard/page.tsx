@@ -152,7 +152,7 @@ export default function DashboardPage() {
                                 L
                             </motion.div>
                             <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-blue-600 dark:from-purple-400 dark:to-blue-400">
-                                LuminosityTeam
+                                Luminosity
                             </span>
                         </div>
                         <div className="flex items-center gap-4">
@@ -213,7 +213,7 @@ export default function DashboardPage() {
                                         transition={{ delay: 0.2 }}
                                         className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight"
                                     >
-                                        Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-blue-200">{user?.name}</span>! 👋
+                                        Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-blue-200">{user?.name.split(" ")[0]}</span>! 👋
                                     </motion.h2>
                                     <motion.p
                                         initial={{ opacity: 0 }}
