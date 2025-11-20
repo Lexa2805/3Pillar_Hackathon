@@ -125,12 +125,17 @@ async def generate_idea(request: PromptRequest):
 @app.post("/api/brainstorm", response_model=dict)
 async def full_brainstorm(request: PromptRequest):
     """
-    Run all three agents (Idea, Critic, Builder) in sequence.
+    Run all three agents (Idea, Critic, Builder) with feedback loop.
+    The Critic can send ideas back to the Idea Agent for revision.
     Returns responses from all agents with chunking and embeddings.
     """
     try:
-        # Run all agents with chunking
-        result = await run_all_agents(request.prompt, request.session_id)
+        # Run all agents with chunking and revision loop
+        result = await run_all_agents(
+            request.prompt, 
+            request.session_id,
+            max_revisions=request.max_revisions or 3
+        )
         
         # Save to MongoDB if session_id is provided
         if request.session_id:

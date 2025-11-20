@@ -11,6 +11,7 @@ class PromptRequest(BaseModel):
     prompt: str = Field(..., description="The user's prompt for idea generation")
     session_id: Optional[str] = Field(None, description="Optional session ID for context")
     use_web_search: Optional[bool] = Field(True, description="Enable web search for current information")
+    max_revisions: Optional[int] = Field(3, description="Maximum number of revision loops allowed (default: 3)")
 
 
 class IdeaResponse(BaseModel):
