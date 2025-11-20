@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import db  # <--- import the module, not "from db import db"
 from models import (
     PromptRequest, IdeaResponse, SessionCreate, SessionResponse, 
-    SessionWithMessages, Message, VectorSearchRequest, VectorSearchResult
+    SessionWithMessages, Message, VectorSearchRequest, VectorSearchResult,
+    UserStats
 )
 from agents import run_idea_agent_only, run_all_agents, run_single_agent_chat
 from vector_utils import vector_search, prepare_vector_document
@@ -61,6 +62,48 @@ async def test_insert():
     return {"inserted_id": str(result.inserted_id)}
 
 
+@app.get("/api/stats", response_model=UserStats)
+async def get_user_stats(user_email: str):
+    """
+    Get statistics for a specific user.
+    """
+    if not user_email:
+        raise HTTPException(status_code=400, detail="User email is required")
+
+    # 1. Get all session IDs for the user
+    cursor = db.db.sessions.find({"user_email": user_email}, {"session_id": 1})
+    user_sessions = await cursor.to_list(length=None)
+    session_ids = [s["session_id"] for s in user_sessions]
+    
+    total_sessions = len(session_ids)
+    
+    if total_sessions == 0:
+        return UserStats(
+            total_sessions=0,
+            ideas_generated=0,
+            knowledge_chunks=0,
+            active_agents=3
+        )
+
+    # 2. Count ideas generated (messages from 'idea' agent in user's sessions)
+    ideas_count = await db.db.messages.count_documents({
+        "session_id": {"$in": session_ids},
+        "agent": "idea"
+    })
+
+    # 3. Count knowledge chunks
+    chunks_count = await db.db.idea_chunks.count_documents({
+        "session_id": {"$in": session_ids}
+    })
+
+    return UserStats(
+        total_sessions=total_sessions,
+        ideas_generated=ideas_count,
+        knowledge_chunks=chunks_count,
+        active_agents=3  # Currently fixed at 3 (Idea, Critic, Builder)
+    )
+
+
 # ==================== IDEA AGENT ENDPOINTS ====================
 
 @app.post("/api/idea", response_model=IdeaResponse)
@@ -72,7 +115,7 @@ async def generate_idea(request: PromptRequest):
     """
     try:
         # Run the idea agent with chunking
-        result = await run_idea_agent_only(request.prompt, request.session_id)
+        result = run_idea_agent_only(request.prompt, request.session_id)
         
         # Save to MongoDB if session_id is provided
         if request.session_id:
@@ -131,7 +174,7 @@ async def full_brainstorm(request: PromptRequest):
     """
     try:
         # Run all agents with chunking and revision loop
-        result = await run_all_agents(
+        result = run_all_agents(
             request.prompt, 
             request.session_id,
             max_revisions=request.max_revisions or 3
@@ -241,6 +284,8 @@ async def full_brainstorm(request: PromptRequest):
         
         return result
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error during brainstorming: {str(e)}")
 
 
@@ -491,7 +536,7 @@ async def chat_with_agent(request: PromptRequest):
                 context.append({"role": role, "content": msg["content"]})
         
         # Run the specific agent
-        result = await run_single_agent_chat(
+        result = run_single_agent_chat(
             agent_type=request.target_agent,
             user_prompt=request.prompt,
             context=context,

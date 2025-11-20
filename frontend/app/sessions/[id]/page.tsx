@@ -6,18 +6,19 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Sidebar } from '@/app/components/Sidebar';
+import { ProjectPlanView, ProjectPlan } from '@/app/components/ProjectPlanView';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 
 interface AgentResponse {
     idea_response: string;
     critic_response: string;
-    builder_response: string;
+    builder_response: string | ProjectPlan;
 }
 
 interface Message {
     agent: string;
-    content: string;
+    content: string | ProjectPlan;
     timestamp: string;
 }
 
@@ -33,6 +34,9 @@ export default function SessionPage() {
     const [currentStep, setCurrentStep] = useState<'idle' | 'idea' | 'critic' | 'builder'>('idle');
     const [inputMessage, setInputMessage] = useState('');
     const [selectedAgent, setSelectedAgent] = useState<string>('all');
+    const [sessionTitle, setSessionTitle] = useState<string>('');
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editedTitle, setEditedTitle] = useState('');
 
     const hasFetched = useRef(false);
 
@@ -51,9 +55,35 @@ export default function SessionPage() {
             if (!res.ok) throw new Error('Failed to load session');
             const data = await res.json();
             setMessages(data.messages || []);
+            setSessionTitle(data.title || '');
+            setEditedTitle(data.title || '');
         } catch (error) {
             console.error(error);
             toast.error('Could not load session history');
+        }
+    };
+
+    const handleTitleUpdate = async () => {
+        if (!editedTitle.trim() || editedTitle === sessionTitle) {
+            setIsEditingTitle(false);
+            return;
+        }
+
+        try {
+            const res = await fetch(`http://localhost:8000/api/sessions/${sessionId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: editedTitle })
+            });
+
+            if (!res.ok) throw new Error('Failed to update title');
+
+            setSessionTitle(editedTitle);
+            setIsEditingTitle(false);
+            toast.success('Session renamed');
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to rename session');
         }
     };
 
@@ -75,7 +105,11 @@ export default function SessionPage() {
                     })
                 });
 
-                if (!res.ok) throw new Error('Brainstorming failed');
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    console.error('Brainstorming error details:', errorData);
+                    throw new Error(errorData.detail || 'Brainstorming failed');
+                }
 
                 const data: AgentResponse = await res.json();
 
@@ -184,11 +218,32 @@ export default function SessionPage() {
             {/* Main Content */}
             <div className="flex-1 flex flex-col relative min-w-0 z-10">
                 <header className="h-16 flex items-center justify-between px-4 sm:px-6 border-b border-gray-200/50 dark:border-white/5 bg-white/50 dark:bg-[#0a0a0a]/50 backdrop-blur-sm">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-1">
                         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                         </button>
-                        <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Session {sessionId.slice(0, 8)}...</h1>
+                        {isEditingTitle ? (
+                            <input
+                                type="text"
+                                value={editedTitle}
+                                onChange={(e) => setEditedTitle(e.target.value)}
+                                onBlur={handleTitleUpdate}
+                                onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate()}
+                                autoFocus
+                                className="text-lg font-semibold text-gray-900 dark:text-white bg-transparent border-b border-purple-500 focus:outline-none w-full max-w-md"
+                            />
+                        ) : (
+                            <h1
+                                onClick={() => {
+                                    setEditedTitle(sessionTitle);
+                                    setIsEditingTitle(true);
+                                }}
+                                className="text-lg font-semibold text-gray-900 dark:text-white cursor-pointer hover:text-purple-600 dark:hover:text-purple-400 transition-colors truncate max-w-md"
+                                title="Click to rename"
+                            >
+                                {sessionTitle || `Session ${sessionId.slice(0, 8)}...`}
+                            </h1>
+                        )}
                     </div>
                     <ThemeToggle />
                 </header>
@@ -216,9 +271,37 @@ export default function SessionPage() {
                                         ? 'bg-purple-600 text-white border-purple-500'
                                         : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-200'
                                         }`}>
-                                        <div className="prose dark:prose-invert max-w-none">
-                                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                        </div>
+                                        {(() => {
+                                            if (msg.agent === 'builder') {
+                                                let plan: ProjectPlan | null = null;
+                                                if (typeof msg.content === 'object' && msg.content !== null) {
+                                                    plan = msg.content as ProjectPlan;
+                                                } else if (typeof msg.content === 'string') {
+                                                    try {
+                                                        if (msg.content.trim().startsWith('{')) {
+                                                            const parsed = JSON.parse(msg.content);
+                                                            if (parsed.stories && parsed.tasks) {
+                                                                plan = parsed;
+                                                            }
+                                                        }
+                                                    } catch (e) {
+                                                        // Not JSON
+                                                    }
+                                                }
+
+                                                if (plan) {
+                                                    return <ProjectPlanView plan={plan} />;
+                                                }
+                                            }
+
+                                            return (
+                                                <div className="prose dark:prose-invert max-w-none">
+                                                    <ReactMarkdown>
+                                                        {typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}
+                                                    </ReactMarkdown>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </motion.div>
@@ -255,8 +338,8 @@ export default function SessionPage() {
                             <button
                                 onClick={() => setSelectedAgent('all')}
                                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${selectedAgent === 'all'
-                                        ? 'bg-purple-600 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    ? 'bg-purple-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 All Agents
@@ -264,8 +347,8 @@ export default function SessionPage() {
                             <button
                                 onClick={() => setSelectedAgent('idea')}
                                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'idea'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 <span className="w-2 h-2 rounded-full bg-blue-400"></span>
@@ -274,8 +357,8 @@ export default function SessionPage() {
                             <button
                                 onClick={() => setSelectedAgent('critic')}
                                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'critic'
-                                        ? 'bg-red-600 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 <span className="w-2 h-2 rounded-full bg-red-400"></span>
@@ -284,8 +367,8 @@ export default function SessionPage() {
                             <button
                                 onClick={() => setSelectedAgent('builder')}
                                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'builder'
-                                        ? 'bg-green-600 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 <span className="w-2 h-2 rounded-full bg-green-400"></span>

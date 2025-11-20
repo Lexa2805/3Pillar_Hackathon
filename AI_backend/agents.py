@@ -33,7 +33,8 @@ class AgentState(TypedDict):
     user_prompt: str
     idea_response: str
     critic_response: str
-    builder_response: str
+    builder_response: Any  # Can be str or Dict (ProjectPlan)
+    builder_response_text: str  # Text representation for chunking/logging
     builder_response_json: Optional[Dict[str, Any]]
     image_url: Optional[str]
     current_agent: str
@@ -56,7 +57,7 @@ def create_openrouter_llm(model: str = "openai/gpt-4o"):
     )
 
 
-async def idea_agent(state: AgentState) -> AgentState:
+def idea_agent(state: AgentState) -> AgentState:
     """
     Idea Agent: Generates creative ideas based on user prompt
     Enhanced with web search for current information
@@ -99,37 +100,16 @@ Please revise your proposal to address all the concerns raised by the critic."""
         print(f"   Revised proposal length: {len(response.content)} characters")
         print(f"   First 200 chars: {response.content[:200]}...")
     else:
-        # Initial idea generation with web search and RAG
+        # Initial idea generation with web search
         
-        # 1. RAG: Search for past ideas
-        past_context = ""
-        if db.db is not None:
-            try:
-                print("🧠 Searching Organizational Memory (RAG)...")
-                past_ideas = await vector_search(
-                    db.db, 
-                    state["user_prompt"], 
-                    collection_name="idea_chunks", 
-                    limit=3
-                )
-                if past_ideas:
-                    past_context = "\n[PAST TEAM IDEAS]\n"
-                    for i, idea in enumerate(past_ideas, 1):
-                        past_context += f"Idea {i}: {idea.get('content', '')[:300]}...\n"
-                    print(f"   Found {len(past_ideas)} relevant past ideas")
-                else:
-                    print("   No relevant past ideas found")
-            except Exception as e:
-                print(f"   ⚠️ RAG search failed: {e}")
+        # Note: RAG feature temporarily disabled for synchronous operation
+        # TODO: Re-enable RAG by running vector_search in a separate thread pool
         
         system_message_content = """You are a Senior Solution Architect at a top tech consultancy. 
 Your goal is to design innovative, scalable technical solutions for client problems. 
-You rely on past case studies to ensure success. You are creative but practical.
+You are creative but practical and base your designs on industry best practices.
 If web search results are provided, use them to inform your designs with current trends and technologies.
 Format your response as a technical proposal or a set of architectural options."""
-
-        if past_context:
-            system_message_content += f"\n\n{past_context}\nUse these past ideas as inspiration if relevant, but ensure your solution is tailored to the current request."
 
         system_message = SystemMessage(content=system_message_content)
         
@@ -304,7 +284,7 @@ def builder_agent(state: AgentState) -> AgentState:
     print("="*50)
     
     llm = create_openrouter_llm()
-    structured_llm = llm.with_structured_output(ProjectPlan)
+    # structured_llm initialization moved inside try block
     
     system_message = SystemMessage(content="""You are an efficient Technical Product Owner. 
 Your job is to take an APPROVED technical architecture and break it down into actionable work. 
@@ -329,11 +309,16 @@ Please provide the User Stories (Gherkin format) and Technical Tasks for impleme
     print("   Sending to GPT-4o...")
     
     try:
+        structured_llm = llm.with_structured_output(ProjectPlan)
         project_plan = structured_llm.invoke([system_message, human_message])
         
+        if not project_plan:
+            raise ValueError("LLM returned empty project plan")
+
         # Convert to dict for state storage
         plan_dict = project_plan.model_dump()
         state["builder_response_json"] = plan_dict
+        state["builder_response"] = plan_dict  # Save JSON object as requested
         
         # Create a text representation for backward compatibility and logging
         text_response = "### User Stories\n\n"
@@ -345,7 +330,7 @@ Please provide the User Stories (Gherkin format) and Technical Tasks for impleme
         for task in project_plan.tasks:
             text_response += f"- [ ] {task}\n"
             
-        state["builder_response"] = text_response
+        state["builder_response_text"] = text_response
         
         print(f"\n✅ Builder Agent completed!")
         print(f"   Generated {len(project_plan.stories)} stories and {len(project_plan.tasks)} tasks")
@@ -355,6 +340,7 @@ Please provide the User Stories (Gherkin format) and Technical Tasks for impleme
         # Fallback to text generation if structured output fails
         response = llm.invoke([system_message, human_message])
         state["builder_response"] = response.content
+        state["builder_response_text"] = response.content
         state["builder_response_json"] = None
     
     state["current_agent"] = "builder"
@@ -475,7 +461,7 @@ def create_agent_graph():
 agent_graph = create_agent_graph()
 
 
-async def run_idea_agent_only(user_prompt: str, session_id: str = None) -> dict:
+def run_idea_agent_only(user_prompt: str, session_id: str = None) -> dict:
     """
     Run only the Idea Agent and return its response with chunks and embeddings
     """
@@ -484,6 +470,7 @@ async def run_idea_agent_only(user_prompt: str, session_id: str = None) -> dict:
         idea_response="",
         critic_response="",
         builder_response="",
+        builder_response_text="",
         current_agent="",
         idea_chunks=[],
         critic_chunks=[],
@@ -515,7 +502,7 @@ async def run_idea_agent_only(user_prompt: str, session_id: str = None) -> dict:
     }
 
 
-async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int = 3) -> dict:
+def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int = 3) -> dict:
     """
     Run all three agents with feedback loop
     The Critic can send the idea back to the Idea Agent for revision
@@ -530,6 +517,7 @@ async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions
         idea_response="",
         critic_response="",
         builder_response="",
+        builder_response_text="",
         current_agent="",
         idea_chunks=[],
         critic_chunks=[],
@@ -565,8 +553,21 @@ async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions
         metadata={"agent": "critic", "user_prompt": user_prompt, "session_id": session_id}
     )
     
+    # Handle builder response text safely
+    builder_text = final_state.get("builder_response_text", "")
+    if not builder_text and final_state.get("builder_response"):
+        if isinstance(final_state["builder_response"], str):
+            builder_text = final_state["builder_response"]
+        else:
+            # It's a dict/JSON
+            import json
+            try:
+                builder_text = json.dumps(final_state["builder_response"])
+            except:
+                builder_text = str(final_state["builder_response"])
+
     builder_chunks = chunk_and_embed_text(
-        final_state["builder_response"],
+        builder_text,
         metadata={"agent": "builder", "user_prompt": user_prompt, "session_id": session_id}
     )
     
@@ -584,7 +585,7 @@ async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions
     }
 
 
-async def run_single_agent_chat(agent_type: str, user_prompt: str, context: List[Dict[str, str]], session_id: str = None) -> dict:
+def run_single_agent_chat(agent_type: str, user_prompt: str, context: List[Dict[str, str]], session_id: str = None) -> dict:
     """
     Run a specific agent in a chat context.
     

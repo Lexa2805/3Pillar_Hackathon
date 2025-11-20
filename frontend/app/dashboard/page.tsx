@@ -35,9 +35,29 @@ const itemVariants: Variants = {
     }
 };
 
+interface Session {
+    session_id: string;
+    title: string;
+    updated_at: string;
+}
+
+interface UserStats {
+    total_sessions: number;
+    ideas_generated: number;
+    knowledge_chunks: number;
+    active_agents: number;
+}
+
 export default function DashboardPage() {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const [recentSessions, setRecentSessions] = useState<Session[]>([]);
+    const [stats, setStats] = useState<UserStats>({
+        total_sessions: 0,
+        ideas_generated: 0,
+        knowledge_chunks: 0,
+        active_agents: 3
+    });
     const router = useRouter();
 
     useEffect(() => {
@@ -49,9 +69,40 @@ export default function DashboardPage() {
             return;
         }
 
-        setUser(JSON.parse(userData));
+        const parsedUser = JSON.parse(userData);
+        setUser(parsedUser);
+        fetchRecentSessions(parsedUser.email);
+        fetchStats(parsedUser.email);
         setLoading(false);
     }, [router]);
+
+    const fetchStats = async (email: string) => {
+        try {
+            const res = await fetch(`http://localhost:8000/api/stats?user_email=${encodeURIComponent(email)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setStats(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch stats', error);
+        }
+    };
+
+    const fetchRecentSessions = async (email: string) => {
+        try {
+            const res = await fetch(`http://localhost:8000/api/sessions?user_email=${encodeURIComponent(email)}`);
+            if (res.ok) {
+                const data = await res.json();
+                // Sort by updated_at desc and take top 3
+                const sorted = data.sort((a: Session, b: Session) =>
+                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                ).slice(0, 3);
+                setRecentSessions(sorted);
+            }
+        } catch (error) {
+            console.error('Failed to fetch sessions', error);
+        }
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -201,28 +252,28 @@ export default function DashboardPage() {
                     >
                         <StatCard
                             title="Total Sessions"
-                            value="0"
+                            value={stats.total_sessions.toString()}
                             icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>}
                             color="purple"
                             delay={0.1}
                         />
                         <StatCard
                             title="Ideas Generated"
-                            value="0"
+                            value={stats.ideas_generated.toString()}
                             icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>}
                             color="blue"
                             delay={0.2}
                         />
                         <StatCard
                             title="Knowledge Chunks"
-                            value="0"
+                            value={stats.knowledge_chunks.toString()}
                             icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>}
                             color="green"
                             delay={0.3}
                         />
                         <StatCard
                             title="Active Agents"
-                            value="3"
+                            value={stats.active_agents.toString()}
                             icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
                             color="orange"
                             delay={0.4}
@@ -240,18 +291,18 @@ export default function DashboardPage() {
                             </h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <ActionCard
-                                    href="/sessions"
-                                    title="My Sessions"
+                                    href="/sessions/new"
+                                    title="My AI Session"
                                     description="View and manage your brainstorming history"
                                     icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>}
                                     color="blue"
                                     delay={0.1}
                                 />
                                 <ActionCard
-                                    href="/search"
-                                    title="Search Ideas"
-                                    description="Find similar ideas across all sessions"
-                                    icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>}
+                                    href="/sessions/new"
+                                    title="New Session"
+                                    description="Start a new brainstorming session"
+                                    icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>}
                                     color="indigo"
                                     delay={0.2}
                                 />
@@ -283,23 +334,53 @@ export default function DashboardPage() {
                                 Recent Activity
                             </h3>
                             <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden h-full">
-                                <div className="p-8 text-center flex flex-col items-center justify-center h-full min-h-[300px]">
-                                    <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700/50 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                                        <svg className="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                        </svg>
+                                {recentSessions.length > 0 ? (
+                                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                                        {recentSessions.map((session) => (
+                                            <Link
+                                                key={session.session_id}
+                                                href={`/sessions/${session.session_id}`}
+                                                className="block p-6 hover:bg-white/80 dark:hover:bg-gray-700/50 transition-colors"
+                                            >
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[200px]">
+                                                        {session.title}
+                                                    </h4>
+                                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                        {new Date(session.updated_at).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                    Active Session
+                                                </p>
+                                            </Link>
+                                        ))}
+                                        <div className="p-4 text-center border-t border-gray-100 dark:border-gray-700">
+                                            <Link href="/sessions/new" className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300">
+                                                View all sessions &rarr;
+                                            </Link>
+                                        </div>
                                     </div>
-                                    <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No activity yet</h4>
-                                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 max-w-[200px]">
-                                        Start your first brainstorming session to see your activity here.
-                                    </p>
-                                    <Link
-                                        href="/sessions/new"
-                                        className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-sm font-medium rounded-xl text-purple-700 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50 transition-all hover:scale-105"
-                                    >
-                                        Start Session
-                                    </Link>
-                                </div>
+                                ) : (
+                                    <div className="p-8 text-center flex flex-col items-center justify-center h-full min-h-[300px]">
+                                        <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700/50 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                                            <svg className="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                            </svg>
+                                        </div>
+                                        <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No activity yet</h4>
+                                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 max-w-[200px]">
+                                            Start your first brainstorming session to see your activity here.
+                                        </p>
+                                        <Link
+                                            href="/sessions/new"
+                                            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-sm font-medium rounded-xl text-purple-700 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50 transition-all hover:scale-105"
+                                        >
+                                            Start Session
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     </div>

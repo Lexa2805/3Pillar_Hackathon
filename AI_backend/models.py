@@ -2,7 +2,7 @@
 Pydantic models for API requests and responses
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Union, Any
 from datetime import datetime
 
 
@@ -46,7 +46,7 @@ class Message(BaseModel):
     message_id: str = Field(..., description="Unique message identifier")
     session_id: str = Field(..., description="Associated session ID")
     agent: str = Field(..., description="Agent that generated the message")
-    content: str = Field(..., description="Message content")
+    content: Any = Field(..., description="Message content (text or structured data)")
     user_prompt: Optional[str] = Field(None, description="Original user prompt if applicable")
     timestamp: datetime = Field(..., description="Message timestamp")
 
@@ -81,3 +81,11 @@ class ChunkData(BaseModel):
     chunk_text: str = Field(..., description="The text content of the chunk")
     embedding: List[float] = Field(..., description="Vector embedding")
     metadata: dict = Field(default_factory=dict, description="Additional metadata")
+
+
+class UserStats(BaseModel):
+    """Response model for user statistics"""
+    total_sessions: int = Field(..., description="Total number of sessions")
+    ideas_generated: int = Field(..., description="Total number of ideas generated")
+    knowledge_chunks: int = Field(..., description="Total number of knowledge chunks")
+    active_agents: int = Field(..., description="Number of active agents")
