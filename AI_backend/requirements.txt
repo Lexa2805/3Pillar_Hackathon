@@ -19,3 +19,4 @@ pymongo
 beautifulsoup4
 lxml
 duckduckgo-search
+tavily-python

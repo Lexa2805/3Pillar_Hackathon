@@ -1,5 +1,5 @@
 # main.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import FastAPI, HTTPException
@@ -55,7 +55,7 @@ async def test_insert():
     """
     doc = {
         "message": "hello from FastAPI",
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
     }
     result = await db.db.test.insert_one(doc)  # <--- use db.db here
     return {"inserted_id": str(result.inserted_id)}
@@ -82,7 +82,7 @@ async def generate_idea(request: PromptRequest):
                 "agent": "idea",
                 "content": result["response"],
                 "user_prompt": request.prompt,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(timezone.utc)
             }
             msg_result = await db.db.messages.insert_one(message_doc)
             message_id = str(msg_result.inserted_id)
@@ -98,7 +98,7 @@ async def generate_idea(request: PromptRequest):
                     "embedding": chunk["embedding"],
                     "chunk_index": chunk["chunk_index"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
                 chunk_docs.append(chunk_doc)
             
@@ -108,7 +108,7 @@ async def generate_idea(request: PromptRequest):
             # Update session's updated_at timestamp
             await db.db.sessions.update_one(
                 {"session_id": request.session_id},
-                {"$set": {"updated_at": datetime.utcnow()}}
+                {"$set": {"updated_at": datetime.now(timezone.utc)}}
             )
         
         return IdeaResponse(
@@ -116,7 +116,7 @@ async def generate_idea(request: PromptRequest):
             response=result["response"],
             user_prompt=result["user_prompt"],
             session_id=request.session_id,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating ideas: {str(e)}")
@@ -141,21 +141,21 @@ async def full_brainstorm(request: PromptRequest):
                     "agent": "idea",
                     "content": result["idea_response"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 },
                 {
                     "session_id": request.session_id,
                     "agent": "critic",
                     "content": result["critic_response"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 },
                 {
                     "session_id": request.session_id,
                     "agent": "builder",
                     "content": result["builder_response"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
             ]
             msg_results = await db.db.messages.insert_many(messages)
@@ -174,7 +174,7 @@ async def full_brainstorm(request: PromptRequest):
                     "embedding": chunk["embedding"],
                     "chunk_index": chunk["chunk_index"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
                 all_chunks.append(chunk_doc)
             
@@ -188,7 +188,7 @@ async def full_brainstorm(request: PromptRequest):
                     "embedding": chunk["embedding"],
                     "chunk_index": chunk["chunk_index"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
                 all_chunks.append(chunk_doc)
             
@@ -202,7 +202,7 @@ async def full_brainstorm(request: PromptRequest):
                     "embedding": chunk["embedding"],
                     "chunk_index": chunk["chunk_index"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.utcnow()
+                    "timestamp": datetime.now(timezone.utc)
                 }
                 all_chunks.append(chunk_doc)
             
@@ -212,7 +212,7 @@ async def full_brainstorm(request: PromptRequest):
             # Update session's updated_at timestamp
             await db.db.sessions.update_one(
                 {"session_id": request.session_id},
-                {"$set": {"updated_at": datetime.utcnow()}}
+                {"$set": {"updated_at": datetime.now(timezone.utc)}}
             )
         
         return result
@@ -235,8 +235,8 @@ async def create_session(session: SessionCreate):
             "session_id": session_id,
             "title": session.title,
             "description": session.description,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
         }
         
         await db.db.sessions.insert_one(session_doc)
