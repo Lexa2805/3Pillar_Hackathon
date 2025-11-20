@@ -107,3 +107,7 @@ log.txt
 *~
 *.bak
 *.backup
+AI_backend/QUICK_REFERENCE.md
+*.md
+AI_backend/.env.example
+AI_backend/TeamSpark_AI_Postman.json

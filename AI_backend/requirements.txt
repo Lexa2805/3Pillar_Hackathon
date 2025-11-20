@@ -8,4 +8,14 @@ certifi
 requests
 
 langgraph
+langchain
+langchain-openai
+langchain-community
+langchain-text-splitters
+httpx
 pydantic
+sentence-transformers
+pymongo
+beautifulsoup4
+lxml
+duckduckgo-search
