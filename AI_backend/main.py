@@ -10,7 +10,7 @@ from models import (
     PromptRequest, IdeaResponse, SessionCreate, SessionResponse, 
     SessionWithMessages, Message, VectorSearchRequest, VectorSearchResult
 )
-from agents import run_idea_agent_only, run_all_agents
+from agents import run_idea_agent_only, run_all_agents, run_single_agent_chat
 from vector_utils import vector_search, prepare_vector_document
 
 app = FastAPI(title="TeamSpark AI API", version="1.0.0")
@@ -137,7 +137,7 @@ async def full_brainstorm(request: PromptRequest):
             max_revisions=request.max_revisions or 3
         )
         
-        # Save to MongoDB if session_id is provided
+        # Save to MongoDB if request.session_id is provided
         if request.session_id:
             # Save main messages
             messages = [
@@ -247,6 +247,7 @@ async def create_session(session: SessionCreate):
             "session_id": session_id,
             "title": session.title,
             "description": session.description,
+            "user_email": session.user_email,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc)
         }
@@ -257,6 +258,7 @@ async def create_session(session: SessionCreate):
             session_id=session_id,
             title=session.title,
             description=session.description,
+            user_email=session.user_email,
             created_at=session_doc["created_at"],
             updated_at=session_doc["updated_at"]
         )
@@ -265,12 +267,16 @@ async def create_session(session: SessionCreate):
 
 
 @app.get("/api/sessions", response_model=List[SessionResponse])
-async def list_sessions():
+async def list_sessions(user_email: str = None):
     """
     Get all brainstorming sessions.
     """
     try:
-        cursor = db.db.sessions.find().sort("updated_at", -1)
+        filter_query = {}
+        if user_email:
+            filter_query["user_email"] = user_email
+
+        cursor = db.db.sessions.find(filter_query).sort("updated_at", -1)
         sessions = await cursor.to_list(length=100)
         
         return [
@@ -278,6 +284,7 @@ async def list_sessions():
                 session_id=s["session_id"],
                 title=s["title"],
                 description=s.get("description"),
+                user_email=s.get("user_email"),
                 created_at=s["created_at"],
                 updated_at=s["updated_at"]
             )
@@ -305,6 +312,7 @@ async def get_session(session_id: str):
             session_id=session["session_id"],
             title=session["title"],
             description=session.get("description"),
+            user_email=session.get("user_email"),
             created_at=session["created_at"],
             updated_at=session["updated_at"],
             messages=[
@@ -449,3 +457,82 @@ async def get_chunk_statistics():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching statistics: {str(e)}")
+
+
+@app.post("/api/chat", response_model=dict)
+async def chat_with_agent(request: PromptRequest):
+    """
+    Chat with a specific agent (Idea, Critic, or Builder) with context.
+    """
+    try:
+        if not request.target_agent:
+            raise HTTPException(status_code=400, detail="Target agent is required for chat")
+            
+        # Fetch conversation history
+        context = []
+        if request.session_id:
+            cursor = db.db.messages.find({"session_id": request.session_id}).sort("timestamp", 1)
+            messages = await cursor.to_list(length=50) # Limit context window
+            
+            for msg in messages:
+                role = "user" if msg["agent"] == "user" else msg["agent"]
+                context.append({"role": role, "content": msg["content"]})
+        
+        # Run the specific agent
+        result = await run_single_agent_chat(
+            agent_type=request.target_agent,
+            user_prompt=request.prompt,
+            context=context,
+            session_id=request.session_id
+        )
+        
+        # Save to MongoDB
+        if request.session_id:
+            # Save user message
+            user_msg = {
+                "session_id": request.session_id,
+                "agent": "user",
+                "content": request.prompt,
+                "timestamp": datetime.now(timezone.utc)
+            }
+            await db.db.messages.insert_one(user_msg)
+            
+            # Save agent response
+            agent_msg = {
+                "session_id": request.session_id,
+                "agent": request.target_agent,
+                "content": result["response"],
+                "user_prompt": request.prompt,
+                "timestamp": datetime.now(timezone.utc)
+            }
+            msg_result = await db.db.messages.insert_one(agent_msg)
+            message_id = str(msg_result.inserted_id)
+            
+            # Save chunks
+            chunk_docs = []
+            for chunk in result["chunks"]:
+                chunk_doc = {
+                    "message_id": message_id,
+                    "session_id": request.session_id,
+                    "agent": request.target_agent,
+                    "content": chunk["chunk_text"],
+                    "embedding": chunk["embedding"],
+                    "chunk_index": chunk["chunk_index"],
+                    "user_prompt": request.prompt,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                chunk_docs.append(chunk_doc)
+            
+            if chunk_docs:
+                await db.db.idea_chunks.insert_many(chunk_docs)
+                
+            # Update session timestamp
+            await db.db.sessions.update_one(
+                {"session_id": request.session_id},
+                {"$set": {"updated_at": datetime.now(timezone.utc)}}
+            )
+            
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during chat: {str(e)}")

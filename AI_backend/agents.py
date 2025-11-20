@@ -448,3 +448,70 @@ async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions
         "revision_count": final_state.get("revision_count", 0),
         "critic_approved": final_state.get("critic_approved", False)
     }
+
+
+async def run_single_agent_chat(agent_type: str, user_prompt: str, context: List[Dict[str, str]], session_id: str = None) -> dict:
+    """
+    Run a specific agent in a chat context.
+    
+    Args:
+        agent_type: 'idea', 'critic', or 'builder'
+        user_prompt: The user's new message
+        context: List of previous messages [{"role": "user/assistant", "content": "..."}]
+        session_id: Optional session ID
+    """
+    llm = create_openrouter_llm()
+    
+    # Define system prompts for each persona
+    system_prompts = {
+        "idea": """You are the Idea Agent (Solution Architect). 
+You are creative, innovative, and knowledgeable about technical architectures.
+You help users brainstorm solutions, explore options, and design systems.
+Use the conversation context to inform your responses.""",
+
+        "critic": """You are the Critic Agent (Technical Review Board).
+You are strict, security-conscious, and focused on scalability and compliance (OWASP, GDPR, etc.).
+You review ideas, point out flaws, and suggest improvements.
+Use the conversation context to understand what is being discussed.""",
+
+        "builder": """You are the Builder Agent (Product Owner).
+You are practical, organized, and focused on implementation details.
+You turn ideas into user stories, tasks, and execution plans.
+Use the conversation context to understand the project requirements."""
+    }
+    
+    system_message = SystemMessage(content=system_prompts.get(agent_type, "You are a helpful AI assistant."))
+    
+    # Build message history
+    messages = [system_message]
+    
+    # Add context messages
+    for msg in context:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        else:
+            # Map agent names to AI responses
+            messages.append(SystemMessage(content=f"[{msg['role'].upper()}]: {msg['content']}"))
+            
+    # Add current prompt
+    messages.append(HumanMessage(content=user_prompt))
+    
+    # Run LLM
+    response = llm.invoke(messages)
+    
+    # Generate chunks for the response
+    chunks_data = chunk_and_embed_text(
+        response.content,
+        metadata={
+            "agent": agent_type,
+            "user_prompt": user_prompt,
+            "session_id": session_id,
+            "type": "chat_response"
+        }
+    )
+    
+    return {
+        "agent": agent_type,
+        "response": response.content,
+        "chunks": chunks_data
+    }

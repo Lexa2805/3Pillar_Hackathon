@@ -51,17 +51,11 @@ const AVAILABLE_AGENTS = [
 export default function NewSessionPage() {
     const router = useRouter();
     const [message, setMessage] = useState('');
-    const [selectedAgents, setSelectedAgents] = useState<string[]>(['researcher', 'creative', 'critic']);
+    const [selectedAgents] = useState<string[]>(['researcher', 'creative', 'critic']);
     const [loading, setLoading] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(true);
 
-    const toggleAgent = (agentId: string) => {
-        if (selectedAgents.includes(agentId)) {
-            setSelectedAgents(selectedAgents.filter(id => id !== agentId));
-        } else {
-            setSelectedAgents([...selectedAgents, agentId]);
-        }
-    };
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -77,13 +71,18 @@ export default function NewSessionPage() {
         setLoading(true);
 
         try {
+            // Get user from localStorage
+            const storedUser = localStorage.getItem('user');
+            const user = storedUser ? JSON.parse(storedUser) : null;
+
             // Create session
             const res = await fetch('http://localhost:8000/api/sessions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
-                    description: 'Brainstorming session'
+                    description: 'Brainstorming session',
+                    user_email: user ? user.email : undefined
                 })
             });
 
@@ -148,39 +147,23 @@ export default function NewSessionPage() {
                         {/* Agents Selection */}
                         <div className="bg-white/40 dark:bg-gray-800/40 backdrop-blur-md rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50">
                             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
-                                Select your team
+                                This is your team
                             </h3>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 {AVAILABLE_AGENTS.map((agent) => (
-                                    <motion.button
+                                    <motion.div
                                         key={agent.id}
                                         whileHover={{ scale: 1.02 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        onClick={() => toggleAgent(agent.id)}
-                                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${selectedAgents.includes(agent.id)
-                                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                                            : 'border-transparent bg-white dark:bg-gray-800 hover:border-gray-200 dark:hover:border-gray-700'
-                                            }`}
+                                        className="relative p-4 rounded-xl border-2 text-left transition-all border-purple-500 bg-purple-50 dark:bg-purple-900/20"
                                     >
                                         <div className="flex items-center gap-3 mb-2">
-                                            <div className={`p-2 rounded-lg ${selectedAgents.includes(agent.id)
-                                                ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300'
-                                                : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                                                }`}>
+                                            <div className="p-2 rounded-lg bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300">
                                                 {agent.icon}
                                             </div>
                                             <span className="font-bold text-gray-900 dark:text-white">{agent.name}</span>
                                         </div>
                                         <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{agent.description}</p>
-
-                                        {selectedAgents.includes(agent.id) && (
-                                            <div className="absolute top-3 right-3 text-purple-600 dark:text-purple-400">
-                                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                </svg>
-                                            </div>
-                                        )}
-                                    </motion.button>
+                                    </motion.div>
                                 ))}
                             </div>
                         </div>

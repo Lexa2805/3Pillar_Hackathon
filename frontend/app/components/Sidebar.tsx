@@ -14,14 +14,26 @@ interface Session {
 export function Sidebar({ isOpen }: { isOpen: boolean }) {
     const pathname = usePathname();
     const [sessions, setSessions] = useState<Session[]>([]);
+    const [user, setUser] = useState<{ id: string; email: string; name?: string } | null>(null);
 
     useEffect(() => {
-        fetchSessions();
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            fetchSessions(parsedUser.email);
+        } else {
+            fetchSessions();
+        }
     }, []);
 
-    const fetchSessions = async () => {
+    const fetchSessions = async (userEmail?: string) => {
         try {
-            const res = await fetch('http://localhost:8000/api/sessions');
+            const url = userEmail
+                ? `http://localhost:8000/api/sessions?user_email=${encodeURIComponent(userEmail)}`
+                : 'http://localhost:8000/api/sessions';
+
+            const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
                 setSessions(data);
@@ -69,8 +81,8 @@ export function Sidebar({ isOpen }: { isOpen: boolean }) {
                             key={session.session_id}
                             href={`/sessions/${session.session_id}`}
                             className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex flex-col gap-0.5 group ${pathname === `/sessions/${session.session_id}`
-                                    ? 'bg-gray-100 dark:bg-gray-800 text-purple-600 dark:text-purple-400'
-                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                ? 'bg-gray-100 dark:bg-gray-800 text-purple-600 dark:text-purple-400'
+                                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
                                 }`}
                         >
                             <span className="font-medium truncate">{session.title}</span>
@@ -85,11 +97,15 @@ export function Sidebar({ isOpen }: { isOpen: boolean }) {
             <div className="p-4 border-t border-gray-200 dark:border-gray-800">
                 <div className="flex items-center gap-3 px-2">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                        U
+                        {user ? (user.name ? user.name[0].toUpperCase() : user.email[0].toUpperCase()) : 'U'}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">User Name</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">user@example.com</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {user ? (user.name || user.email.split('@')[0]) : 'Guest'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {user ? user.email : 'Please log in'}
+                        </p>
                     </div>
                 </div>
             </div>

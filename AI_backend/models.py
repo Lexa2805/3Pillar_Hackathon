@@ -12,6 +12,7 @@ class PromptRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Optional session ID for context")
     use_web_search: Optional[bool] = Field(True, description="Enable web search for current information")
     max_revisions: Optional[int] = Field(3, description="Maximum number of revision loops allowed (default: 3)")
+    target_agent: Optional[str] = Field(None, description="Specific agent to talk to (idea, critic, builder)")
 
 
 class IdeaResponse(BaseModel):
@@ -27,6 +28,7 @@ class SessionCreate(BaseModel):
     """Request model for creating a new session"""
     title: str = Field(..., description="Title of the brainstorming session")
     description: Optional[str] = Field(None, description="Description of the session")
+    user_email: Optional[str] = Field(None, description="Email of the user who created the session")
 
 
 class SessionResponse(BaseModel):
@@ -34,6 +36,7 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., description="Unique session identifier")
     title: str = Field(..., description="Session title")
     description: Optional[str] = Field(None, description="Session description")
+    user_email: Optional[str] = Field(None, description="Email of the user who created the session")
     created_at: datetime = Field(..., description="Session creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

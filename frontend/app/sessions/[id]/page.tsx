@@ -31,6 +31,8 @@ export default function SessionPage() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [currentStep, setCurrentStep] = useState<'idle' | 'idea' | 'critic' | 'builder'>('idle');
+    const [inputMessage, setInputMessage] = useState('');
+    const [selectedAgent, setSelectedAgent] = useState<string>('all');
 
     const hasFetched = useRef(false);
 
@@ -57,43 +59,66 @@ export default function SessionPage() {
 
     const runBrainstorm = async (prompt: string) => {
         setLoading(true);
-        setCurrentStep('idea');
 
         // Add user message immediately
         setMessages(prev => [...prev, { agent: 'user', content: prompt, timestamp: new Date().toISOString() }]);
 
         try {
-            const res = await fetch('http://localhost:8000/api/brainstorm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: prompt,
-                    session_id: sessionId
-                })
-            });
+            if (selectedAgent === 'all') {
+                setCurrentStep('idea');
+                const res = await fetch('http://localhost:8000/api/brainstorm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        session_id: sessionId
+                    })
+                });
 
-            if (!res.ok) throw new Error('Brainstorming failed');
+                if (!res.ok) throw new Error('Brainstorming failed');
 
-            const data: AgentResponse = await res.json();
+                const data: AgentResponse = await res.json();
 
-            // Simulate streaming/progressive reveal
-            setCurrentStep('critic');
-            await new Promise(r => setTimeout(r, 1000));
+                // Simulate streaming/progressive reveal
+                setCurrentStep('critic');
+                await new Promise(r => setTimeout(r, 1000));
 
-            setCurrentStep('builder');
-            await new Promise(r => setTimeout(r, 1000));
+                setCurrentStep('builder');
+                await new Promise(r => setTimeout(r, 1000));
 
-            setCurrentStep('idle');
-            setLoading(false);
+                setCurrentStep('idle');
+                setLoading(false);
 
-            // Refresh messages to get the formatted ones from backend or just append local
-            // For now, let's append local to be smooth
-            setMessages(prev => [
-                ...prev,
-                { agent: 'idea', content: data.idea_response, timestamp: new Date().toISOString() },
-                { agent: 'critic', content: data.critic_response, timestamp: new Date().toISOString() },
-                { agent: 'builder', content: data.builder_response, timestamp: new Date().toISOString() }
-            ]);
+                setMessages(prev => [
+                    ...prev,
+                    { agent: 'idea', content: data.idea_response, timestamp: new Date().toISOString() },
+                    { agent: 'critic', content: data.critic_response, timestamp: new Date().toISOString() },
+                    { agent: 'builder', content: data.builder_response, timestamp: new Date().toISOString() }
+                ]);
+            } else {
+                // Chat with specific agent
+                setCurrentStep(selectedAgent as any);
+                const res = await fetch('http://localhost:8000/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        session_id: sessionId,
+                        target_agent: selectedAgent
+                    })
+                });
+
+                if (!res.ok) throw new Error('Chat failed');
+
+                const data = await res.json();
+                setLoading(false);
+                setCurrentStep('idle');
+
+                setMessages(prev => [
+                    ...prev,
+                    { agent: data.agent, content: data.response, timestamp: new Date().toISOString() }
+                ]);
+            }
 
         } catch (error) {
             console.error(error);
@@ -101,6 +126,15 @@ export default function SessionPage() {
             setLoading(false);
             setCurrentStep('idle');
         }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inputMessage.trim() || loading) return;
+
+        const prompt = inputMessage;
+        setInputMessage('');
+        await runBrainstorm(prompt);
     };
 
     const getAgentIcon = (agent: string) => {
@@ -160,7 +194,7 @@ export default function SessionPage() {
                 </header>
 
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-                    <div className="max-w-4xl mx-auto space-y-8">
+                    <div className="max-w-4xl mx-auto space-y-8 pb-24">
                         {messages.map((msg, idx) => (
                             <motion.div
                                 key={idx}
@@ -213,6 +247,77 @@ export default function SessionPage() {
                         )}
                     </div>
                 </main>
+
+                <div className="p-4 bg-white dark:bg-[#0a0a0a] border-t border-gray-200 dark:border-gray-800">
+                    <div className="max-w-4xl mx-auto space-y-4">
+                        {/* Agent Selector */}
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            <button
+                                onClick={() => setSelectedAgent('all')}
+                                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${selectedAgent === 'all'
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    }`}
+                            >
+                                All Agents
+                            </button>
+                            <button
+                                onClick={() => setSelectedAgent('idea')}
+                                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'idea'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    }`}
+                            >
+                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                                Idea Agent
+                            </button>
+                            <button
+                                onClick={() => setSelectedAgent('critic')}
+                                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'critic'
+                                        ? 'bg-red-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    }`}
+                            >
+                                <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                                Critic Agent
+                            </button>
+                            <button
+                                onClick={() => setSelectedAgent('builder')}
+                                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedAgent === 'builder'
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    }`}
+                            >
+                                <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                                Builder Agent
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="relative">
+                            <input
+                                type="text"
+                                value={inputMessage}
+                                onChange={(e) => setInputMessage(e.target.value)}
+                                placeholder={
+                                    selectedAgent === 'all'
+                                        ? "Ask the whole team..."
+                                        : `Ask the ${selectedAgent.charAt(0).toUpperCase() + selectedAgent.slice(1)} Agent...`
+                                }
+                                className="w-full p-4 pr-12 bg-gray-100 dark:bg-gray-900 border-none rounded-xl focus:ring-2 focus:ring-purple-500 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                                disabled={loading}
+                            />
+                            <button
+                                type="submit"
+                                disabled={loading || !inputMessage.trim()}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     );
