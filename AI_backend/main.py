@@ -138,6 +138,12 @@ async def full_brainstorm(request: PromptRequest):
             messages = [
                 {
                     "session_id": request.session_id,
+                    "agent": "user",
+                    "content": request.prompt,
+                    "timestamp": datetime.now(timezone.utc)
+                },
+                {
+                    "session_id": request.session_id,
                     "agent": "idea",
                     "content": result["idea_response"],
                     "user_prompt": request.prompt,
@@ -159,15 +165,16 @@ async def full_brainstorm(request: PromptRequest):
                 }
             ]
             msg_results = await db.db.messages.insert_many(messages)
+            # Get inserted IDs - note that the first one is the user message
             message_ids = [str(mid) for mid in msg_results.inserted_ids]
             
             # Save chunks with embeddings for all agents
             all_chunks = []
             
-            # Process idea chunks
+            # Process idea chunks (associated with idea message, which is index 1)
             for chunk in result["idea_chunks"]:
                 chunk_doc = {
-                    "message_id": message_ids[0],
+                    "message_id": message_ids[1],
                     "session_id": request.session_id,
                     "agent": "idea",
                     "content": chunk["chunk_text"],
@@ -181,7 +188,7 @@ async def full_brainstorm(request: PromptRequest):
             # Process critic chunks
             for chunk in result["critic_chunks"]:
                 chunk_doc = {
-                    "message_id": message_ids[1],
+                    "message_id": message_ids[2],
                     "session_id": request.session_id,
                     "agent": "critic",
                     "content": chunk["chunk_text"],
@@ -195,7 +202,7 @@ async def full_brainstorm(request: PromptRequest):
             # Process builder chunks
             for chunk in result["builder_chunks"]:
                 chunk_doc = {
-                    "message_id": message_ids[2],
+                    "message_id": message_ids[3],
                     "session_id": request.session_id,
                     "agent": "builder",
                     "content": chunk["chunk_text"],
