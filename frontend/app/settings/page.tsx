@@ -18,7 +18,7 @@ export default function SettingsPage() {
 
     return (
         <div className="flex h-screen bg-gray-50 dark:bg-[#0a0a0a] overflow-hidden transition-colors duration-300">
-            <Sidebar isOpen={sidebarOpen} />
+            
 
             <div className="flex-1 flex flex-col relative min-w-0 z-10">
                 <header className="h-16 flex items-center justify-between px-4 sm:px-6 border-b border-gray-200/50 dark:border-white/5 bg-white/50 dark:bg-[#0a0a0a]/50 backdrop-blur-sm">

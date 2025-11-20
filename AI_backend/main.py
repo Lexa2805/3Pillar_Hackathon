@@ -5,7 +5,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-import db  # <--- import the module, not "from db import db"
+import db  
 from models import (
     PromptRequest, IdeaResponse, SessionCreate, SessionResponse, 
     SessionWithMessages, Message, VectorSearchRequest, VectorSearchResult,
@@ -177,7 +177,7 @@ async def full_brainstorm(request: PromptRequest):
         result = run_all_agents(
             request.prompt, 
             request.session_id,
-            max_revisions=request.max_revisions or 3
+            max_revisions=request.max_revisions or 1
         )
         
         # Save to MongoDB if request.session_id is provided

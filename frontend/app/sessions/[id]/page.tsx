@@ -9,6 +9,19 @@ import { Sidebar } from '@/app/components/Sidebar';
 import { ProjectPlanView, ProjectPlan } from '@/app/components/ProjectPlanView';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
+import dynamic from 'next/dynamic';
+
+// Dynamically import PDF export button (client-side only)
+const PDFExportButton = dynamic(() => import('@/app/components/PDFExportButton').then(mod => ({ default: mod.PDFExportButton })), {
+    ssr: false,
+    loading: () => (
+        <button className="p-2 text-gray-400 rounded-lg opacity-50" disabled>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+        </button>
+    )
+});
 
 interface AgentResponse {
     idea_response: string;
@@ -52,7 +65,14 @@ export default function SessionPage() {
     const fetchSession = async () => {
         try {
             const res = await fetch(`http://localhost:8000/api/sessions/${sessionId}`);
-            if (!res.ok) throw new Error('Failed to load session');
+            if (!res.ok) {
+                if (res.status === 404) {
+                    toast.error('Session not found');
+                    window.location.href = '/sessions/new';
+                    return;
+                }
+                throw new Error('Failed to load session');
+            }
             const data = await res.json();
             setMessages(data.messages || []);
             setSessionTitle(data.title || '');
@@ -245,7 +265,80 @@ export default function SessionPage() {
                             </h1>
                         )}
                     </div>
-                    <ThemeToggle />
+                    <div className="flex items-center gap-2">
+                        {/* PDF Export Button */}
+                        {messages.length > 0 && (
+                            <PDFExportButton
+                                sessionTitle={sessionTitle || `Session ${sessionId.slice(0, 8)}`}
+                                messages={messages}
+                                sessionId={sessionId}
+                            />
+                        )}
+                        <button
+                            onClick={() => {
+                                toast((t) => (
+                                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6 min-w-[320px]">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                                                <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                </svg>
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Delete Session</h3>
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Are you sure you want to delete this session?</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3 justify-end">
+                                            <button
+                                                onClick={() => toast.dismiss(t.id)}
+                                                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={async () => {
+                                                    toast.dismiss(t.id);
+                                                    try {
+                                                        const res = await fetch(`http://localhost:8000/api/sessions/${sessionId}`, {
+                                                            method: 'DELETE'
+                                                        });
+                                                        if (res.ok) {
+                                                            toast.success('Session deleted');
+                                                            window.location.href = '/sessions/new';
+                                                        } else {
+                                                            throw new Error('Failed to delete');
+                                                        }
+                                                    } catch (error) {
+                                                        console.error(error);
+                                                        toast.error('Failed to delete session');
+                                                    }
+                                                }}
+                                                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                ), {
+                                    duration: Infinity,
+                                    position: 'top-center',
+                                    style: {
+                                        background: 'transparent',
+                                        boxShadow: 'none',
+                                        padding: 0,
+                                    },
+                                });
+                            }}
+                            className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="Delete session"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                        <ThemeToggle />
+                    </div>
                 </header>
 
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -295,8 +388,20 @@ export default function SessionPage() {
                                             }
 
                                             return (
-                                                <div className="prose dark:prose-invert max-w-none">
-                                                    <ReactMarkdown>
+                                                <div className="prose dark:prose-invert max-w-none overflow-hidden">
+                                                    <ReactMarkdown
+                                                        components={{
+                                                            pre: ({ node, ...props }) => (
+                                                                <pre className="overflow-x-auto whitespace-pre-wrap break-words max-w-full" {...props} />
+                                                            ),
+                                                            code: ({ node, ...props }) => (
+                                                                <code className="break-words whitespace-pre-wrap" {...props} />
+                                                            ),
+                                                            p: ({ node, ...props }) => (
+                                                                <p className="break-words whitespace-normal" {...props} />
+                                                            )
+                                                        }}
+                                                    >
                                                         {typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}
                                                     </ReactMarkdown>
                                                 </div>
