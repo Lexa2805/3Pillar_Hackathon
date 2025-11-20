@@ -11,8 +11,9 @@ class PromptRequest(BaseModel):
     prompt: str = Field(..., description="The user's prompt for idea generation")
     session_id: Optional[str] = Field(None, description="Optional session ID for context")
     use_web_search: Optional[bool] = Field(True, description="Enable web search for current information")
-    max_revisions: Optional[int] = Field(3, description="Maximum number of revision loops allowed (default: 3)")
+    max_revisions: Optional[int] = Field(1, description="Maximum number of revision loops allowed (default: 1)")
     target_agent: Optional[str] = Field(None, description="Specific agent to talk to (idea, critic, builder)")
+    devils_advocate: Optional[bool] = Field(False, description="Enable Devil's Advocate mode for critic")
 
 
 class IdeaResponse(BaseModel):
@@ -49,6 +50,7 @@ class Message(BaseModel):
     content: Any = Field(..., description="Message content (text or structured data)")
     user_prompt: Optional[str] = Field(None, description="Original user prompt if applicable")
     timestamp: datetime = Field(..., description="Message timestamp")
+    metadata: Optional[dict] = Field(None, description="Additional metadata (e.g., security_score, scalability_score)")
 
 
 class SessionWithMessages(SessionResponse):

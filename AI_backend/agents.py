@@ -26,6 +26,15 @@ class UserStory(BaseModel):
 class ProjectPlan(BaseModel):
     stories: List[UserStory]
     tasks: List[str]
+    mermaid_code: str = Field(..., description="Mermaid.js flowchart syntax for the system architecture")
+
+
+class CriticReview(BaseModel):
+    decision: str = Field(..., description="Final decision: 'APPROVED' or 'NEEDS_REVISION'")
+    security_score: int = Field(..., description="0-100 Score based on OWASP Top 10. < 70 is failing.")
+    scalability_score: int = Field(..., description="0-100 Score based on concurrent user capability.")
+    feedback: str = Field(..., description="The detailed technical review text (markdown supported).")
+    critical_issues: List[str] = Field(default=[], description="List of specific issues that MUST be fixed.")
 
 
 class AgentState(TypedDict):
@@ -45,6 +54,8 @@ class AgentState(TypedDict):
     revision_count: int  # Number of times the idea has been revised
     critic_feedback: str  # Feedback from critic for revision
     max_revisions: int  # Maximum number of revision loops allowed
+    critic_metadata: Optional[Dict[str, Any]]  # Store security and scalability scores
+    devils_advocate: bool  # Enable Devil's Advocate mode
 
 
 def create_openrouter_llm(model: str = "openai/gpt-4o"):
@@ -100,10 +111,29 @@ Please revise your proposal to address all the concerns raised by the critic."""
         print(f"   Revised proposal length: {len(response.content)} characters")
         print(f"   First 200 chars: {response.content[:200]}...")
     else:
-        # Initial idea generation with web search
+        # Initial idea generation with web search and RAG
         
-        # Note: RAG feature temporarily disabled for synchronous operation
-        # TODO: Re-enable RAG by running vector_search in a separate thread pool
+        # --- RAG IMPLEMENTATION START ---
+        print(f"\n🧠 RAG: Searching for similar past ideas...")
+        rag_context = ""
+        try:
+            import asyncio
+            # Run async vector_search in sync context
+            past_ideas = asyncio.run(vector_search(
+                db.db, 
+                query_text=state["user_prompt"], 
+                collection_name="idea_chunks", 
+                limit=2
+            ))
+            
+            if past_ideas:
+                print(f"   Found {len(past_ideas)} relevant past ideas.")
+                rag_context = "Here are relevant ideas from previous sessions to learn from (Do not copy, but learn patterns):\n"
+                for idea in past_ideas:
+                    rag_context += f"- {idea['content']}\n"
+        except Exception as e:
+            print(f"⚠️ RAG Search failed (continuing without history): {e}")
+        # --- RAG IMPLEMENTATION END ---
         
         system_message_content = """You are a Senior Solution Architect at a top tech consultancy. 
 Your goal is to design innovative, scalable technical solutions for client problems. 
@@ -114,7 +144,7 @@ Format your response as a technical proposal or a set of architectural options."
         system_message = SystemMessage(content=system_message_content)
         
         # Enhance prompt with web search if enabled
-        user_content = state["user_prompt"]
+        user_content = f"{state['user_prompt']}\n\n{rag_context}"
         if is_web_search_enabled():
             print(f"\n📡 Idea Agent requesting web search...")
             print(f"   Query: {state['user_prompt'][:100]}...")
@@ -207,7 +237,25 @@ Please select the best solution.""")
     print("\n⚠️ STEP 2: Critic performing technical review...")
     print("   Focus areas: OWASP Top 10, Scalability, GDPR/HIPAA compliance")
     
-    critique_system_message = SystemMessage(content="""You are a Strict Technical Review Board member. 
+    # Check for Devil's Advocate mode
+    is_devil_mode = state.get("devils_advocate", False)
+    
+    if is_devil_mode:
+        print("😈 DEVIL'S ADVOCATE MODE ACTIVE")
+        critique_system_message = SystemMessage(content="""You are 'The Destroyer'. 
+You are a ruthless Devil's Advocate. Your goal is to find every single flaw. 
+Be sarcastic, aggressive, and pedantic. 
+Give a low security score unless the code is literally perfect.
+Start your review with "😈 *Sigh*... let's see what mess you've made today."
+
+You MUST respond with:
+- decision: 'APPROVED' or 'NEEDS_REVISION'
+- security_score: 0-100 (be harsh, rarely give above 60)
+- scalability_score: 0-100
+- feedback: Your detailed sarcastic review
+- critical_issues: List of issues""")
+    else:
+        critique_system_message = SystemMessage(content="""You are a Strict Technical Review Board member. 
 You are an expert in Cybersecurity (OWASP Top 10) and Scalability. 
 Your job is to determine if the proposed solution is acceptable or needs revision.
 
@@ -243,31 +291,35 @@ Solution to Review:
 
 Please provide your technical review and decision (APPROVED or NEEDS_REVISION).""")
     
-    print("   Sending critique request to GPT-4o...")
-    response = llm.invoke([critique_system_message, critique_human_message])
+    print("   Sending structured critique request...")
+    structured_critic = llm.with_structured_output(CriticReview)
+    review = structured_critic.invoke([critique_system_message, critique_human_message])
     
-    # Parse the response to determine if approved
-    response_text = response.content
-    is_approved = "DECISION: APPROVED" in response_text or "DECISION:APPROVED" in response_text
+    # Store scores in metadata
+    state["critic_metadata"] = {
+        "security_score": review.security_score,
+        "scalability_score": review.scalability_score
+    }
     
-    if is_approved:
-        print(f"\n✅ CRITIC APPROVED the solution!")
+    # Logic for approval
+    if review.decision == "APPROVED" and review.security_score >= 70:
+        print(f"\n✅ CRITIC APPROVED (Security Score: {review.security_score})")
         state["critic_approved"] = True
-        state["critic_feedback"] = ""  # Clear feedback on approval
+        state["critic_feedback"] = ""
     else:
-        print(f"\n❌ CRITIC REJECTED - Requesting revision")
-        # Increment revision count here since conditional edges cannot update state
+        print(f"\n❌ CRITIC REJECTED (Security Score: {review.security_score})")
+        # Increment revision count
         new_revision_count = state.get('revision_count', 0) + 1
         print(f"   Revision count updated to: {new_revision_count}")
         state["revision_count"] = new_revision_count
         
         state["critic_approved"] = False
-        state["critic_feedback"] = response_text
+        state["critic_feedback"] = f"Security Score too low ({review.security_score}/100). Fix these issues: {', '.join(review.critical_issues)}"
     
-    print(f"   Review length: {len(response_text)} characters")
-    print(f"   First 200 chars: {response_text[:200]}...")
+    print(f"   Review length: {len(review.feedback)} characters")
+    print(f"   First 200 chars: {review.feedback[:200]}...")
     
-    state["critic_response"] = response_text
+    state["critic_response"] = review.feedback
     state["current_agent"] = "critic"
     
     return state
@@ -300,7 +352,7 @@ Approved Solution (from Idea Agent):
 Technical Review (APPROVED):
 {state['critic_response']}
 
-Please provide the User Stories (Gherkin format) and Technical Tasks for implementation.""")
+Please provide the User Stories (Gherkin format), Technical Tasks for implementation, and a valid Mermaid.js flowchart (graph TD) representing the system architecture, databases, and user flows. Put this in the 'mermaid_code' field.""")
     
     print("\n📋 Generating User Stories (Gherkin) and Technical Tasks...")
     print(f"   Processing approved solution ({len(state['idea_response'])} chars)")
@@ -502,7 +554,7 @@ def run_idea_agent_only(user_prompt: str, session_id: str = None) -> dict:
     }
 
 
-def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int = 3) -> dict:
+def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int = 1, devils_advocate: bool = False) -> dict:
     """
     Run all three agents with feedback loop
     The Critic can send the idea back to the Idea Agent for revision
@@ -510,7 +562,8 @@ def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int 
     Args:
         user_prompt: The user's request
         session_id: Optional session identifier
-        max_revisions: Maximum number of revision loops (default: 3)
+        max_revisions: Maximum number of revision loops (default: 1)
+        devils_advocate: Enable Devil's Advocate mode for critic (default: False)
     """
     initial_state = AgentState(
         user_prompt=user_prompt,
@@ -525,7 +578,9 @@ def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int 
         critic_approved=False,
         revision_count=0,
         critic_feedback="",
-        max_revisions=max_revisions
+        max_revisions=max_revisions,
+        critic_metadata=None,
+        devils_advocate=devils_advocate
     )
     
     print(f"\n{'='*60}")
@@ -581,7 +636,8 @@ def run_all_agents(user_prompt: str, session_id: str = None, max_revisions: int 
         "critic_chunks": critic_chunks,
         "builder_chunks": builder_chunks,
         "revision_count": final_state.get("revision_count", 0),
-        "critic_approved": final_state.get("critic_approved", False)
+        "critic_approved": final_state.get("critic_approved", False),
+        "critic_metadata": final_state.get("critic_metadata")
     }
 
 

@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Sidebar } from '@/app/components/Sidebar';
 import { ProjectPlanView, ProjectPlan } from '@/app/components/ProjectPlanView';
+import { Mermaid } from '@/app/components/Mermaid';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import dynamic from 'next/dynamic';
@@ -33,6 +34,10 @@ interface Message {
     agent: string;
     content: string | ProjectPlan;
     timestamp: string;
+    metadata?: {
+        security_score?: number;
+        scalability_score?: number;
+    };
 }
 
 export default function SessionPage() {
@@ -50,6 +55,7 @@ export default function SessionPage() {
     const [sessionTitle, setSessionTitle] = useState<string>('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editedTitle, setEditedTitle] = useState('');
+    const [isDevilsAdvocate, setIsDevilsAdvocate] = useState(false);
 
     const hasFetched = useRef(false);
 
@@ -121,7 +127,8 @@ export default function SessionPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         prompt: prompt,
-                        session_id: sessionId
+                        session_id: sessionId,
+                        devils_advocate: isDevilsAdvocate
                     })
                 });
 
@@ -266,6 +273,26 @@ export default function SessionPage() {
                         )}
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* Devil's Advocate Toggle */}
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                            <label htmlFor="devils-advocate" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-2">
+                                <span>😈</span>
+                                <span className="hidden sm:inline">Devil's Advocate</span>
+                            </label>
+                            <button
+                                id="devils-advocate"
+                                onClick={() => setIsDevilsAdvocate(!isDevilsAdvocate)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                    isDevilsAdvocate ? 'bg-red-600' : 'bg-gray-300 dark:bg-gray-600'
+                                }`}
+                            >
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                        isDevilsAdvocate ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
+                            </button>
+                        </div>
                         {/* PDF Export Button */}
                         {messages.length > 0 && (
                             <PDFExportButton
@@ -364,6 +391,39 @@ export default function SessionPage() {
                                         ? 'bg-purple-600 text-white border-purple-500'
                                         : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-200'
                                         }`}>
+                                        {/* Security Score Meter for Critic */}
+                                        {msg.agent === 'critic' && msg.metadata?.security_score !== undefined && (
+                                            <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Security Score</span>
+                                                    <span className={`text-lg font-black ${msg.metadata.security_score > 70 ? 'text-green-500' : 'text-red-500'}`}>
+                                                        {msg.metadata.security_score}/100
+                                                    </span>
+                                                </div>
+                                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                                    <div 
+                                                        className={`h-2.5 rounded-full transition-all duration-1000 ${msg.metadata.security_score > 70 ? 'bg-green-500' : 'bg-red-500'}`} 
+                                                        style={{ width: `${msg.metadata.security_score}%` }}
+                                                    ></div>
+                                                </div>
+                                                {msg.metadata?.scalability_score !== undefined && (
+                                                    <>
+                                                        <div className="flex items-center justify-between mb-2 mt-3">
+                                                            <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Scalability Score</span>
+                                                            <span className={`text-lg font-black ${msg.metadata.scalability_score > 70 ? 'text-green-500' : 'text-red-500'}`}>
+                                                                {msg.metadata.scalability_score}/100
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                                            <div 
+                                                                className={`h-2.5 rounded-full transition-all duration-1000 ${msg.metadata.scalability_score > 70 ? 'bg-green-500' : 'bg-red-500'}`} 
+                                                                style={{ width: `${msg.metadata.scalability_score}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
                                         {(() => {
                                             if (msg.agent === 'builder') {
                                                 let plan: ProjectPlan | null = null;
@@ -383,7 +443,18 @@ export default function SessionPage() {
                                                 }
 
                                                 if (plan) {
-                                                    return <ProjectPlanView plan={plan} />;
+                                                    return (
+                                                        <>
+                                                            <ProjectPlanView plan={plan} />
+                                                            {/* Render Mermaid diagram if available */}
+                                                            {plan.mermaid_code && (
+                                                                <div className="mt-4">
+                                                                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">🎨 System Architecture</h3>
+                                                                    <Mermaid chart={plan.mermaid_code} />
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    );
                                                 }
                                             }
 

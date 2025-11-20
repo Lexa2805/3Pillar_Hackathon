@@ -177,7 +177,8 @@ async def full_brainstorm(request: PromptRequest):
         result = run_all_agents(
             request.prompt, 
             request.session_id,
-            max_revisions=request.max_revisions or 1
+            max_revisions=request.max_revisions or 1,
+            devils_advocate=request.devils_advocate or False
         )
         
         # Save to MongoDB if request.session_id is provided
@@ -202,7 +203,8 @@ async def full_brainstorm(request: PromptRequest):
                     "agent": "critic",
                     "content": result["critic_response"],
                     "user_prompt": request.prompt,
-                    "timestamp": datetime.now(timezone.utc)
+                    "timestamp": datetime.now(timezone.utc),
+                    "metadata": result.get("critic_metadata")
                 },
                 {
                     "session_id": request.session_id,
@@ -213,17 +215,6 @@ async def full_brainstorm(request: PromptRequest):
                 }
             ]
             
-            # Add visualizer message if image_url exists
-            if result.get("image_url"):
-                messages.append({
-                    "session_id": request.session_id,
-                    "agent": "visualizer",
-                    "content": f"Generated Architecture Diagram: {result['image_url']}",
-                    "image_url": result["image_url"],
-                    "user_prompt": request.prompt,
-                    "timestamp": datetime.now(timezone.utc)
-                })
-                
             msg_results = await db.db.messages.insert_many(messages)
             # Get inserted IDs - note that the first one is the user message
             message_ids = [str(mid) for mid in msg_results.inserted_ids]
@@ -379,7 +370,8 @@ async def get_session(session_id: str):
                     agent=m["agent"],
                     content=m["content"],
                     user_prompt=m.get("user_prompt"),
-                    timestamp=m["timestamp"]
+                    timestamp=m["timestamp"],
+                    metadata=m.get("metadata")
                 )
                 for m in messages
             ]

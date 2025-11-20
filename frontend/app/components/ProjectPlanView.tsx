@@ -10,6 +10,7 @@ export interface UserStory {
 export interface ProjectPlan {
     stories: UserStory[];
     tasks: string[];
+    mermaid_code?: string;
 }
 
 export function ProjectPlanView({ plan }: { plan: ProjectPlan }) {
