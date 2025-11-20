@@ -15,9 +15,6 @@ except ImportError:
 
 load_dotenv()
 
-ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
 
 def search_web(query: str, max_results: int = 5, search_depth: str = "advanced", include_domains: List[str] = None) -> List[Dict[str, Any]]:
     """
@@ -32,11 +29,16 @@ def search_web(query: str, max_results: int = 5, search_depth: str = "advanced",
     Returns:
         List of search results with title, snippet, and link
     """
-    if not ENABLE_WEB_SEARCH:
+    # Reload env vars to ensure we have the latest config
+    load_dotenv(override=True)
+    enable_web_search = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
+
+    if not enable_web_search:
         print("⚠️ Web search is disabled (ENABLE_WEB_SEARCH=false in .env)")
         return []
     
-    if not TAVILY_AVAILABLE or not TAVILY_API_KEY:
+    if not TAVILY_AVAILABLE or not tavily_api_key:
         print("❌ Tavily API not available. Check your TAVILY_API_KEY in .env")
         return []
     
@@ -47,7 +49,7 @@ def search_web(query: str, max_results: int = 5, search_depth: str = "advanced",
     
     try:
         print("🔍 Using Tavily Search API...")
-        tavily = TavilyClient(api_key=TAVILY_API_KEY)
+        tavily = TavilyClient(api_key=tavily_api_key)
         
         search_params = {
             "query": query,
@@ -152,4 +154,9 @@ Based on the user's request and the web search results above, provide well-infor
 
 def is_web_search_enabled() -> bool:
     """Check if web search is enabled and available."""
-    return ENABLE_WEB_SEARCH and TAVILY_AVAILABLE and TAVILY_API_KEY is not None
+    # Reload env vars to ensure we have the latest config
+    load_dotenv(override=True)
+    enable_web_search = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
+    
+    return enable_web_search and TAVILY_AVAILABLE and tavily_api_key is not None

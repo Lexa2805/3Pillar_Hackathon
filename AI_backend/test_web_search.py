@@ -20,7 +20,7 @@ def test_web_search():
         return
     
     # Test search
-    print("\n📊 Testing DuckDuckGo search...")
+    print("\n📊 Testing Tavily search...")
     query = "AI trends in healthcare 2025"
     print(f"   Query: '{query}'")
     print("   Fetching results...")
