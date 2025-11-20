@@ -2,17 +2,30 @@
 Multi-Agent System using LangGraph and OpenRouter
 """
 import os
-from typing import TypedDict, Annotated, Dict, List, Any
+from typing import TypedDict, Annotated, Dict, List, Any, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
-from vector_utils import chunk_and_embed_text, prepare_vector_document
+from pydantic import BaseModel, Field
+from vector_utils import chunk_and_embed_text, prepare_vector_document, vector_search
 from web_search import search_for_context, is_web_search_enabled
+import db
 
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+
+class UserStory(BaseModel):
+    title: str
+    gherkin: str
+    priority: str
+
+
+class ProjectPlan(BaseModel):
+    stories: List[UserStory]
+    tasks: List[str]
 
 
 class AgentState(TypedDict):
@@ -21,6 +34,8 @@ class AgentState(TypedDict):
     idea_response: str
     critic_response: str
     builder_response: str
+    builder_response_json: Optional[Dict[str, Any]]
+    image_url: Optional[str]
     current_agent: str
     idea_chunks: List[Dict[str, Any]]
     critic_chunks: List[Dict[str, Any]]
@@ -41,11 +56,12 @@ def create_openrouter_llm(model: str = "openai/gpt-4o"):
     )
 
 
-def idea_agent(state: AgentState) -> AgentState:
+async def idea_agent(state: AgentState) -> AgentState:
     """
     Idea Agent: Generates creative ideas based on user prompt
     Enhanced with web search for current information
     Can revise ideas based on critic feedback
+    Uses RAG to leverage past successful ideas
     """
     print("\n" + "="*50)
     print("🤖 IDEA AGENT (Solution Architect) Started")
@@ -83,12 +99,39 @@ Please revise your proposal to address all the concerns raised by the critic."""
         print(f"   Revised proposal length: {len(response.content)} characters")
         print(f"   First 200 chars: {response.content[:200]}...")
     else:
-        # Initial idea generation with web search
-        system_message = SystemMessage(content="""You are a Senior Solution Architect at a top tech consultancy. 
+        # Initial idea generation with web search and RAG
+        
+        # 1. RAG: Search for past ideas
+        past_context = ""
+        if db.db is not None:
+            try:
+                print("🧠 Searching Organizational Memory (RAG)...")
+                past_ideas = await vector_search(
+                    db.db, 
+                    state["user_prompt"], 
+                    collection_name="idea_chunks", 
+                    limit=3
+                )
+                if past_ideas:
+                    past_context = "\n[PAST TEAM IDEAS]\n"
+                    for i, idea in enumerate(past_ideas, 1):
+                        past_context += f"Idea {i}: {idea.get('content', '')[:300]}...\n"
+                    print(f"   Found {len(past_ideas)} relevant past ideas")
+                else:
+                    print("   No relevant past ideas found")
+            except Exception as e:
+                print(f"   ⚠️ RAG search failed: {e}")
+        
+        system_message_content = """You are a Senior Solution Architect at a top tech consultancy. 
 Your goal is to design innovative, scalable technical solutions for client problems. 
 You rely on past case studies to ensure success. You are creative but practical.
 If web search results are provided, use them to inform your designs with current trends and technologies.
-Format your response as a technical proposal or a set of architectural options.""")
+Format your response as a technical proposal or a set of architectural options."""
+
+        if past_context:
+            system_message_content += f"\n\n{past_context}\nUse these past ideas as inspiration if relevant, but ensure your solution is tailored to the current request."
+
+        system_message = SystemMessage(content=system_message_content)
         
         # Enhance prompt with web search if enabled
         user_content = state["user_prompt"]
@@ -188,12 +231,22 @@ Please select the best solution.""")
 You are an expert in Cybersecurity (OWASP Top 10) and Scalability. 
 Your job is to determine if the proposed solution is acceptable or needs revision.
 
+You MUST perform a mandatory checklist review:
+1. Security: Check for OWASP Top 10 vulnerabilities (Injection, Auth, Data Exposure, etc.)
+2. Scalability: Verify if the system can handle 10k+ concurrent users (Load balancing, Caching, DB scaling)
+3. Privacy: Ensure GDPR/PII compliance (Data encryption, User consent, Right to be forgotten)
+
 You MUST respond in this exact format:
 
 **DECISION: [APPROVED or NEEDS_REVISION]**
 
 **Selected Solution:**
 [The solution being reviewed]
+
+**Mandatory Checklist:**
+- [ ] Security (OWASP Top 10): [Pass/Fail] - [Notes]
+- [ ] Scalability (10k+ users): [Pass/Fail] - [Notes]
+- [ ] Privacy (GDPR/PII): [Pass/Fail] - [Notes]
 
 **Technical Review:**
 [Your detailed analysis]
@@ -244,17 +297,20 @@ def builder_agent(state: AgentState) -> AgentState:
     """
     Builder Agent: Creates actionable tasks based on the approved solution
     Only runs after the Critic has approved the idea
+    Uses structured output for JSON response
     """
     print("\n" + "="*50)
     print("🔨 BUILDER AGENT (Product Owner) Started")
     print("="*50)
     
     llm = create_openrouter_llm()
+    structured_llm = llm.with_structured_output(ProjectPlan)
     
     system_message = SystemMessage(content="""You are an efficient Technical Product Owner. 
 Your job is to take an APPROVED technical architecture and break it down into actionable work. 
 You generate clean, formatted User Stories (in Gherkin syntax) and a list of Technical Tasks for the development team.
-The solution has already been reviewed and approved by the Technical Review Board.""")
+The solution has already been reviewed and approved by the Technical Review Board.
+Return the output as a structured JSON object.""")
     
     human_message = HumanMessage(content=f"""User Prompt: {state['user_prompt']}
 
@@ -269,16 +325,90 @@ Please provide the User Stories (Gherkin format) and Technical Tasks for impleme
     print("\n📋 Generating User Stories (Gherkin) and Technical Tasks...")
     print(f"   Processing approved solution ({len(state['idea_response'])} chars)")
     print(f"   Including review notes ({len(state['critic_response'])} chars)")
-    print("   Expected output: Gherkin-style User Stories + Task breakdown")
+    print("   Expected output: Structured JSON (ProjectPlan)")
     print("   Sending to GPT-4o...")
-    response = llm.invoke([system_message, human_message])
     
-    print(f"\n✅ Builder Agent completed!")
-    print(f"   Output length: {len(response.content)} characters")
-    print(f"   First 200 chars: {response.content[:200]}...")
-    state["builder_response"] = response.content
+    try:
+        project_plan = structured_llm.invoke([system_message, human_message])
+        
+        # Convert to dict for state storage
+        plan_dict = project_plan.model_dump()
+        state["builder_response_json"] = plan_dict
+        
+        # Create a text representation for backward compatibility and logging
+        text_response = "### User Stories\n\n"
+        for story in project_plan.stories:
+            text_response += f"#### {story.title} ({story.priority})\n"
+            text_response += f"```gherkin\n{story.gherkin}\n```\n\n"
+        
+        text_response += "### Technical Tasks\n\n"
+        for task in project_plan.tasks:
+            text_response += f"- [ ] {task}\n"
+            
+        state["builder_response"] = text_response
+        
+        print(f"\n✅ Builder Agent completed!")
+        print(f"   Generated {len(project_plan.stories)} stories and {len(project_plan.tasks)} tasks")
+        
+    except Exception as e:
+        print(f"❌ Error in Builder Agent structured output: {e}")
+        # Fallback to text generation if structured output fails
+        response = llm.invoke([system_message, human_message])
+        state["builder_response"] = response.content
+        state["builder_response_json"] = None
+    
     state["current_agent"] = "builder"
     
+    return state
+
+
+def visualizer_agent(state: AgentState) -> AgentState:
+    """
+    Visualizer Agent: Generates a visual representation of the architecture
+    Runs in parallel with Builder Agent
+    """
+    print("\n" + "="*50)
+    print("🎨 VISUALIZER AGENT Started")
+    print("="*50)
+    
+    llm = create_openrouter_llm()
+    
+    # Generate an image prompt based on the idea
+    prompt_system = SystemMessage(content="""You are a Technical Illustrator.
+Create a detailed, descriptive prompt for an AI image generator (like DALL-E 3) to visualize the software architecture described.
+Focus on system components, data flow, and cloud infrastructure.
+The prompt should be under 1000 characters.""")
+    
+    prompt_human = HumanMessage(content=f"""Technical Solution:
+{state['idea_response'][:2000]}...
+
+Generate an image generation prompt for this architecture.""")
+    
+    print("   Generating image prompt...")
+    image_prompt_response = llm.invoke([prompt_system, prompt_human])
+    image_prompt = image_prompt_response.content
+    print(f"   Prompt: {image_prompt[:100]}...")
+    
+    # Try to generate image
+    image_url = "https://placehold.co/600x400?text=Architecture+Diagram+Placeholder"
+    
+    try:
+        from langchain_community.utilities.dalle_image_generator import DallEAPIWrapper
+        print("   Generating image with DALL-E...")
+        # Note: This requires OPENAI_API_KEY to be set for DALL-E
+        # If using OpenRouter, we might need a different approach or specific configuration
+        # For now, we attempt to use the standard wrapper if available
+        dalle = DallEAPIWrapper(model="dall-e-3")
+        image_url = dalle.run(image_prompt)
+        print(f"✅ Image generated: {image_url}")
+    except ImportError:
+        print("⚠️ langchain_community not installed or DallEAPIWrapper not available.")
+        print("   Using placeholder image.")
+    except Exception as e:
+        print(f"⚠️ Image generation failed: {e}")
+        print("   Using placeholder image.")
+        
+    state["image_url"] = image_url
     return state
 
 
@@ -310,7 +440,7 @@ def should_continue_to_builder(state: AgentState) -> str:
 def create_agent_graph():
     """
     Create the LangGraph workflow with feedback loop
-    Flow: Idea → Critic → [If approved: Builder, If not: back to Idea] → END
+    Flow: Idea → Critic → [If approved: Visualizer → Builder, If not: back to Idea] → END
     """
     workflow = StateGraph(AgentState)
     
@@ -318,21 +448,24 @@ def create_agent_graph():
     workflow.add_node("idea", idea_agent)
     workflow.add_node("critic", critic_agent)
     workflow.add_node("builder", builder_agent)
+    workflow.add_node("visualizer", visualizer_agent)
     
     # Define the flow with conditional routing
     workflow.set_entry_point("idea")
     workflow.add_edge("idea", "critic")
     
-    # Conditional edge: critic can either approve (go to builder) or request revision (go back to idea)
+    # Conditional edge: critic can either approve (go to visualizer) or request revision (go back to idea)
     workflow.add_conditional_edges(
         "critic",
         should_continue_to_builder,
         {
-            "approve": "builder",
+            "approve": "visualizer",
             "revise": "idea"
         }
     )
     
+    # Visualizer runs in parallel or before builder. Here we run it before builder.
+    workflow.add_edge("visualizer", "builder")
     workflow.add_edge("builder", END)
     
     return workflow.compile()
@@ -442,6 +575,7 @@ async def run_all_agents(user_prompt: str, session_id: str = None, max_revisions
         "idea_response": final_state["idea_response"],
         "critic_response": final_state["critic_response"],
         "builder_response": final_state["builder_response"],
+        "image_url": final_state.get("image_url"),
         "idea_chunks": idea_chunks,
         "critic_chunks": critic_chunks,
         "builder_chunks": builder_chunks,

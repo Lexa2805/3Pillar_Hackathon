@@ -169,6 +169,18 @@ async def full_brainstorm(request: PromptRequest):
                     "timestamp": datetime.now(timezone.utc)
                 }
             ]
+            
+            # Add visualizer message if image_url exists
+            if result.get("image_url"):
+                messages.append({
+                    "session_id": request.session_id,
+                    "agent": "visualizer",
+                    "content": f"Generated Architecture Diagram: {result['image_url']}",
+                    "image_url": result["image_url"],
+                    "user_prompt": request.prompt,
+                    "timestamp": datetime.now(timezone.utc)
+                })
+                
             msg_results = await db.db.messages.insert_many(messages)
             # Get inserted IDs - note that the first one is the user message
             message_ids = [str(mid) for mid in msg_results.inserted_ids]
