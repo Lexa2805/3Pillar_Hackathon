@@ -1,0 +1,109 @@
+# ===========================
+#   PYTHON / FASTAPI BACKEND
+# ===========================
+
+# Virtual environment
+venv/
+.venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python build
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Logs
+*.log
+
+# dotenv environment files
+.env
+*.env
+
+# Local config
+*.sqlite
+*.db
+
+# ===========================
+#   NODE / NEXT.JS FRONTEND
+# ===========================
+
+# Node modules
+node_modules/
+**/node_modules/
+
+# Next.js build
+.next/
+out/
+
+# Yarn, PNPM, Corepack
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+.pnpm-debug.log
+
+# NPM logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# ===========================
+#   EDITOR / OS FILES
+# ===========================
+
+# VS Code
+.vscode/
+.history/
+
+# JetBrains IDE
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Windows files
+desktop.ini
+
+# ===========================
+#   MISC
+# ===========================
+
+# Logs
+logs/
+*.log
+log.txt
+
+# Compiled or temporary assets
+*.swp
+*.swo
+*.tmp
+*.temp
+
+# Mongo/AI cache
+**/.cache/
+**/.langchain/
+**/langgraph_temp/
+
+# ===========================
+#   BACKUP FILES
+# ===========================
+
+*~
+*.bak
+*.backup

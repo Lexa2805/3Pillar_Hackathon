@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+
+motor
+python-dotenv
+certifi
+
+requests
+
+langgraph
+pydantic
